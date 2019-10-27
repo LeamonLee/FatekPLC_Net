@@ -1,0 +1,6 @@
+C:\C#_Exercise\fatekTCP\fatekTCP\bin\Debug\fatekTCP.exe.config
+C:\C#_Exercise\fatekTCP\fatekTCP\bin\Debug\fatekTCP.exe
+C:\C#_Exercise\fatekTCP\fatekTCP\bin\Debug\fatekTCP.pdb
+C:\C#_Exercise\fatekTCP\fatekTCP\obj\Debug\fatekTCP.csprojResolveAssemblyReference.cache
+C:\C#_Exercise\fatekTCP\fatekTCP\obj\Debug\fatekTCP.exe
+C:\C#_Exercise\fatekTCP\fatekTCP\obj\Debug\fatekTCP.pdb
