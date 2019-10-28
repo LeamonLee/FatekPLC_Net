@@ -67,13 +67,13 @@ namespace fatekTCP
             try
             {
                 SocketPLC.Send(baSendCom, baSendCom.Length, 0);
-                Console.WriteLine($"command sent: {ByteArrayToString(baSendCom)}");         // command sent: 0230313430433703
+                Console.WriteLine($"command sent: {ByteArrayToHexString(baSendCom)}");         // command sent: 0230313430433703
 
                 int nRcvBytesLength = SocketPLC.Receive(baRcvBuffer, SocketFlags.None);
                 Console.WriteLine($"nRcvBytesLength: {nRcvBytesLength}");
                 byte[] baPLCRes = new byte[nRcvBytesLength];
                 Array.Copy(baRcvBuffer, baPLCRes, nRcvBytesLength);
-                Console.WriteLine($"baPLCRes: {ByteArrayToString(baPLCRes)}");              // baPLCRes: 023031343030303134303030314303
+                Console.WriteLine($"baPLCRes: {ByteArrayToHexString(baPLCRes)}");              // baPLCRes: 023031343030303134303030314303
 
 
                 // Remove STX, Original cmmand, Checksum and ETX
@@ -133,18 +133,29 @@ namespace fatekTCP
             return Tuple.Create(baUsefulRes[0], baResult);        // first one is error code, the second rest are useful info.
         }
 
-        public Tuple<byte, long[]> getRegsState(PLCInfo.RegType regType, int nRegNumber, int nReadNumber)
+        public Tuple<byte, long> getRegValue(PLCInfo.RegType regType, int nRegNumber)
+        {
+            var result = getRegsState(regType, nRegNumber, 1);
+            byte nErrorCode = result.Item1;
+            byte nRegValue = result.Item2[0];
+
+            return Tuple.Create(nErrorCode, nRegValue);        // first one is error code, the second rest are useful info.
+        }
+
+        public Tuple<byte, long[]> getRegsValue(PLCInfo.RegType regType, int nRegNumber, int nReadNumber)
         {
             string strType = regType.ToString();
             string strReadNumber = nReadNumber.ToString("D2");
             string strRegNumber = nRegNumber.ToString("D5");
+            
             string strCmd = strReadNumber + strType + strRegNumber;
             byte[] baPLCAsciiRes = SendPLC(PLCInfo.FunctionID.ReadReg, strCmd);
             string strUsefulRes = Encoding.ASCII.GetString(baPLCAsciiRes);
 
             Console.WriteLine("strUsefulRes: {0}, {1}", strUsefulRes, strUsefulRes.Length);
 
-            // Example: R0 = 1000, strUsefulRes= 003E8
+            // Example: R0 = 1000, strUsefulRes= 003E8  DR2 = 10,000,000, strUsefulRes = 000989680
+            // Note: The first 0 is error code. so it actually is "03E8" for R0 = 1000.
             byte nErrorCode = byte.Parse(strUsefulRes[0].ToString());
             Console.WriteLine($"nErrorCode: {nErrorCode}");
 
@@ -153,18 +164,35 @@ namespace fatekTCP
             if (nErrorCode == 0)
             {
                 baUsefulRes = hexStringToHexByteArray(strUsefulRes.Substring(1));
-                foreach (var item in baUsefulRes)
+                int nDataLength = 0;
+
+                switch(regType)
                 {
-                    Console.WriteLine($"baUsefulRes: {item}");
+                    case PLCInfo.RegType.R:
+                    case PLCInfo.RegType.D:
+                        nDataLength = 2;
+                        break;
+                    case PLCInfo.RegType.DR:
+                    case PLCInfo.RegType.DD:
+                        nDataLength = 4;
+                        break;
+                    default:
+                        return Tuple.Create(nErrorCode, naResult);
                 }
 
-                long[] naTemp = new long[baUsefulRes.Length / 2];
-                for (int i = 0; i < baUsefulRes.Length; i+=2)
+                long[] naTemp = new long[baUsefulRes.Length / nDataLength];
+                for (int i = 0; i < baUsefulRes.Length; i += nDataLength)
                 {
-                    byte[] baTemp = new byte[] { baUsefulRes[0], baUsefulRes[1] };
-                    // Due to Little endian, must reverse it first
+                    byte[] baTemp = baUsefulRes.Skip(i * nDataLength).Take(nDataLength).ToArray<byte>();
+                    
+                    // Since Fatek PLC is Little-endian-based, must reverse it first
                     Array.Reverse(baTemp);
-                    UInt16 nRegValue = BitConverter.ToUInt16(baTemp, 0);
+                    
+                    if(nDataLength == 2)
+                        Int16 nRegValue = BitConverter.ToInt16(baTemp, 0);
+                    else
+                        Int32 nRegValue = BitConverter.ToInt32(baTemp, 0);
+                    
                     naTemp[i] = nRegValue;
                 }
                 naResult = naTemp;
@@ -172,6 +200,48 @@ namespace fatekTCP
             }
 
             return Tuple.Create(nErrorCode, naResult);        // first one is error code, the second rest are useful info.
+        }
+
+        public byte setRegValue(PLCInfo.RegType regType, int nRegNumber, long nWriteValue)
+        {
+            byte nErrorCode = setRegsValue(regType, nRegNumber, 1, new long[]{nWriteValue});
+            return nErrorCode;
+        }
+
+        public byte setRegsValue(PLCInfo.RegType regType, int nRegNumber, int nWriteNumber, long[] naWriteValues)
+        {
+            // Example: naWriteValues = [1000, 12000] ==>  "03E8" + "2EE0" = "03E82EE0"
+            string strType = regType.ToString();
+            string strWriteNumber = nWriteNumber.ToString("D2");
+            string strRegNumber = nRegNumber.ToString("D5");
+            
+            byte nErrorCode = 0;
+            long[] naResult = new long[0];
+            
+            int nDataLength = 0;
+            switch(regType)
+            {
+                case PLCInfo.RegType.R:
+                case PLCInfo.RegType.D:
+                    nDataLength = 4;
+                    break;
+                case PLCInfo.RegType.DR:
+                case PLCInfo.RegType.DD:
+                    nDataLength = 8;
+                    break;
+                default:
+                    return Tuple.Create(nErrorCode, naResult);
+            }
+
+            string strWriteValue = ByteArrayToHexString(naWriteValues, nDataLength);
+
+            string strCmd = strWriteNumber + strType + strRegNumber + strWriteValue;
+            byte[] baPLCAsciiRes = SendPLC(PLCInfo.FunctionID.WriteReg, strCmd);
+            string strUsefulRes = Encoding.ASCII.GetString(baPLCAsciiRes);
+
+            nErrorCode = byte.Parse(strUsefulRes[0].ToString());
+
+            return nErrorCode;
         }
 
         public static byte[] RemoveControlCharChksum(byte[] baSource, byte[] baExpectedRes)
@@ -227,10 +297,17 @@ namespace fatekTCP
 
         public static byte[] hexStringToHexByteArray(string strSource)
         {
-            // Example: "03E8"  ==> byte[0x03, 0xE8]
-            return Enumerable.Range(0, strSource.Length / 2)
+            // Example: "03E8" ==> byte[0x03, 0xE8], "00989680" ==> byte[0x00, 0x98, 0x96, 0x80]
+
+            var baResult = Enumerable.Range(0, strSource.Length / 2)
                              .Select(x => Convert.ToByte(strSource.Substring(x * 2, 2), 16))
                              .ToArray();
+            foreach (var item in baResult)
+            {
+                Console.WriteLine($"baResult: {item}");
+            }
+
+            return baResult;
 
         }
 
@@ -270,18 +347,23 @@ namespace fatekTCP
             return baDevValue;
         }
 
-        public static string intToHexString(int nValue)
+        public static string DecIntToHexString(int nDecValue)
         {
+            //Example1: nDecValue = 1000 ==> hexString = "3E8", nDecValue = 10,000,000 ==> hexString = "989680"
+            
             // Method1
-            //string hexString = nValue.ToString("X");
+            //string hexString = nDecValue.ToString("X");      // X or X2 both work
 
+            //Example1: nDecValue = 1000 ==> hexString = "0x3E8", nDecValue = 10,000,000 ==> hexString = "0x989680"
             // Method2
-            string hexString = String.Format("0x{0:X}", nValue);
+            string hexString = String.Format("0x{0:X}", nDecValue); 
             return hexString;
         }
 
-        public static int HexStringToInt(string strHexValue)
+        public static int HexStringToDecInt(string strHexValue)
         {
+            // Example: strHexValue = "0x3E8" or "3E8" ==> nDecValue = 1000
+
             // strip the leading 0x
             if (strHexValue.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
             {
@@ -289,38 +371,48 @@ namespace fatekTCP
             }
 
             // Method1
-            int nIntValue = Convert.ToInt32(strHexValue, 16);  // Back to int again.
+            int nDecValue = Convert.ToInt32(strHexValue, 16);  // Back to int again.
 
             // Method2
-            //int nIntValue = Int32.Parse(strValue, System.Globalization.NumberStyles.HexNumber);
+            //int nDecValue = Int32.Parse(strValue, System.Globalization.NumberStyles.HexNumber);
 
-            return nIntValue;
+            return nDecValue;
         }
 
-        public static string ByteArrayToString(byte[] ba, bool isDecimal = false)
+        public static string ByteArrayToHexString(byte[] ba, int nFmtLength = 2, bool isDecimal = false)
         {
-            //string hex = BitConverter.ToString(data).Replace("-", string.Empty);
+            // Both Decimal format or Hexadecimal one work.
+            // Example: ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "0230313430"
+            // Example: ba = [2, 48, 49, 52, 48] ==> hexString = "0230313430"
 
-            StringBuilder hex = new StringBuilder();
+            // Method1 BitConverter.ToString(ba) ==> "02-30-31-34-30"
+            //string hexString = BitConverter.ToString(ba).Replace("-", string.Empty);
+
+            string fmt = String.Format("X{0}", nFmtLength);     // Could be "X2", "X4" or "X8"
+            fmt = "{0:" + fmt + "}";
+
+            // Method2
+            StringBuilder hexString = new StringBuilder();
             foreach (byte b in ba)
             {
                 if(isDecimal == false)
-                    hex.AppendFormat("{0:x2}", b);
+                    hexString.AppendFormat(fmt, b);
                 else
-                    hex.AppendFormat("{0:D}", b);
+                    hexString.AppendFormat("{0:D}", b);         // ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "248495248"
                 
             }
 
-            return hex.ToString();
+            return hexString.ToString();
         }
 
-        public static byte[] StringToByteArray(String hex)
+        public static byte[] HexStringToByteArray(String hexString)
         {
-            int NumberChars = hex.Length;
-            byte[] bytes = new byte[NumberChars / 2];
+            // Example: hexString = "0230313430" ==> hexBytes = [0x02, 0x30, 0x31, 0x34, 0x30]
+            int NumberChars = hexString.Length;
+            byte[] hexBytes = new byte[NumberChars / 2];
             for (int i = 0; i < NumberChars; i += 2)
-                bytes[i / 2] = Convert.ToByte(hex.Substring(i, 2), 16);
-            return bytes;
+                hexBytes[i / 2] = Convert.ToByte(hexString.Substring(i, 2), 16);
+            return hexBytes;
         }
 
     }
@@ -422,7 +514,26 @@ namespace fatekTCP
 
             return Tuple.Create(baCombineCommand, baExpectedRes);
         }
+    }
 
+    public enum ErrorCode
+    {
+        None = 0,
+        
+    }
 
+    public static class ErrorMessage
+    {
+        public static string ToString(this ErrorCode err)
+        {
+            switch (err)
+            {
+                case ErrorLevel.None:
+                    return "None";
+                
+                default:
+                    return "This error message has not been defined yet";
+            }
+        }
     }
 }

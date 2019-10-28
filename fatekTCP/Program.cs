@@ -26,7 +26,7 @@ namespace fatekTCP
             Console.WriteLine("ErrorCode: {0}, M0: {1}", M0.Item1, M0.Item2);
 
 
-            var R0 = fatekPLC.getRegsState(PLCInfo.RegType.R, 0, 1);
+            var R0 = fatekPLC.getRegsValue(PLCInfo.RegType.R, 0, 1);
             Console.WriteLine("ErrorCode: {0}", R0.Item1);
 
             foreach (var item in R0.Item2)
