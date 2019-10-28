@@ -32,7 +32,15 @@ namespace fatekTCP
             foreach (var item in R0.Item2)
             {
                 Console.WriteLine("item: {0}", item);
-            }    
+            }
+
+            var nErrorCode = fatekPLC.setRegsValue(PLCInfo.RegType.DR, 2, 3, new long[] { 1000, 2000, 3000 });
+            Console.WriteLine("nErrorCode: {0}", nErrorCode);
+
+            var DR2 = fatekPLC.getRegValue(PLCInfo.RegType.DR, 2);
+            Console.WriteLine("ErrorCode: {0}, DR2: {1}", DR2.Item1, DR2.Item2);
+
+
 
             Console.ReadLine();
         }

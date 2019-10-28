@@ -135,9 +135,9 @@ namespace fatekTCP
 
         public Tuple<byte, long> getRegValue(PLCInfo.RegType regType, int nRegNumber)
         {
-            var result = getRegsState(regType, nRegNumber, 1);
+            var result = getRegsValue(regType, nRegNumber, 1);
             byte nErrorCode = result.Item1;
-            byte nRegValue = result.Item2[0];
+            long nRegValue = result.Item2[0];
 
             return Tuple.Create(nErrorCode, nRegValue);        // first one is error code, the second rest are useful info.
         }
@@ -189,11 +189,16 @@ namespace fatekTCP
                     Array.Reverse(baTemp);
                     
                     if(nDataLength == 2)
+                    {
                         Int16 nRegValue = BitConverter.ToInt16(baTemp, 0);
+                        naTemp[i] = nRegValue;
+                    }
                     else
+                    {
                         Int32 nRegValue = BitConverter.ToInt32(baTemp, 0);
+                        naTemp[i] = nRegValue;
+                    }
                     
-                    naTemp[i] = nRegValue;
                 }
                 naResult = naTemp;
                 
@@ -230,7 +235,7 @@ namespace fatekTCP
                     nDataLength = 8;
                     break;
                 default:
-                    return Tuple.Create(nErrorCode, naResult);
+                    return nErrorCode;
             }
 
             string strWriteValue = ByteArrayToHexString(naWriteValues, nDataLength);
@@ -379,7 +384,7 @@ namespace fatekTCP
             return nDecValue;
         }
 
-        public static string ByteArrayToHexString(byte[] ba, int nFmtLength = 2, bool isDecimal = false)
+        public static string ByteArrayToHexString<T>(T[] ba, int nFmtLength = 2)
         {
             // Both Decimal format or Hexadecimal one work.
             // Example: ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "0230313430"
@@ -393,13 +398,10 @@ namespace fatekTCP
 
             // Method2
             StringBuilder hexString = new StringBuilder();
-            foreach (byte b in ba)
+            foreach (T b in ba)
             {
-                if(isDecimal == false)
-                    hexString.AppendFormat(fmt, b);
-                else
-                    hexString.AppendFormat("{0:D}", b);         // ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "248495248"
-                
+                hexString.AppendFormat(fmt, b);
+                // hexString.AppendFormat("{0:D}", b);         // ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "248495248"
             }
 
             return hexString.ToString();
@@ -528,7 +530,7 @@ namespace fatekTCP
         {
             switch (err)
             {
-                case ErrorLevel.None:
+                case ErrorCode.None:
                     return "None";
                 
                 default:
