@@ -60,6 +60,7 @@ namespace fatekTCP
                             break;
                             
                         _ConnectPLC();
+                        Thread.Sleep(1000);
                     }
                     
                     // sw.Stop();
@@ -80,7 +81,9 @@ namespace fatekTCP
             var t1 = Task.Factory.StartNew(()=>{
                 while(!_SocketPLC.Connected)
                 {
+                    Console.WriteLine("Reconnect to PLC...");
                     _ConnectPLC();
+                    Thread.Sleep(1000);
                 }
             });
             
@@ -92,9 +95,9 @@ namespace fatekTCP
             
             try
             {
-                _SocketPLC.Connect(IPAddress.Loopback, _PORT);
-                // _SocketPLC.Connect(_ipe);
-                
+                //_SocketPLC.Connect(IPAddress.Loopback, _PORT);
+                _SocketPLC.Connect(_ipe);
+
             }
             catch (SocketException)
             {
@@ -143,6 +146,7 @@ namespace fatekTCP
             {
                 //MessageBox.Show(err.Message);
                 Console.WriteLine(err.Message);
+                _reConnectPLC();
             }
             
             return baUsefulRes;
