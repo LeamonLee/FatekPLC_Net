@@ -33,10 +33,12 @@ namespace fatekTCP
             {
                 Console.WriteLine("item: {0}", item);
             }
-
+			
+			// Set DR2, DR4, DR6 to 1000, 2000, 3000 respectively.
             var nErrorCode = fatekPLC.setRegsValue(PLCInfo.RegType.DR, 2, 3, new long[] { 1000, 2000, 3000 });
             Console.WriteLine("nErrorCode: {0}", nErrorCode);
-
+			
+			// Get the value of DR2 
             var DR2 = fatekPLC.getRegValue(PLCInfo.RegType.DR, 2);
             Console.WriteLine("ErrorCode: {0}, DR2: {1}", DR2.Item1, DR2.Item2);
 

@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
-
+using System.Threading;
+using System.Threading.Tasks;
 
 using System.Net.Sockets;
 using System.Net;
 using System.Linq;
+using System.Diagnostics;
 
 namespace fatekTCP
 {
@@ -17,36 +19,93 @@ namespace fatekTCP
             this.PLCInfo.Set_StationID(nStationID);
 
             this._PLCIP = IPAddress.Parse(strIP);
+            this._PORT = nPort;
             this._ipe = new IPEndPoint(_PLCIP, nPort);
+
+            _SocketPLC = new Socket(_ipe.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            // _SocketPLC = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+
+        }
+        ~Fatek_Net()
+        {
+            if(_SocketPLC != null)
+            {
+                _SocketPLC.Shutdown(SocketShutdown.Both);
+                _SocketPLC.Close();
+            }
+        }
+        
+        public bool isPLCConnected {get {return _SocketPLC.Connected;}}
+        private Socket _SocketPLC;
+        private PLCInfo PLCInfo;
+
+        // private IPHostEntry hostEntry;
+        private IPAddress _PLCIP;                       // = IPAddress.Parse("192.168.2.3");
+        private int _PORT;
+        private IPEndPoint _ipe;                        // = new IPEndPoint(_PLCIP, 500);
+        
+
+        public bool ConnectPLC(Action<bool> callbackFunc = null, int nTimeout = 5000)
+        {
+            
+            if(callbackFunc != null)
+            {
+                var t1 = Task.Factory.StartNew(()=>{
+                    
+                    var sw = Stopwatch.StartNew();
+                    
+                    while(!_SocketPLC.Connected)
+                    {
+                        if(sw.ElapsedMilliseconds >= nTimeout)    
+                            break;
+                            
+                        _ConnectPLC();
+                    }
+                    
+                    // sw.Stop();
+                    callbackFunc(_SocketPLC.Connected);
+                });
+            }
+            else
+            {
+                _ConnectPLC();
+            }
+                
+            return _SocketPLC.Connected;
         }
 
-         
-        public Socket SocketPLC;
-        public PLCInfo PLCInfo;
-        
-        //public IPHostEntry hostEntry;
-        private IPAddress _PLCIP;           // = IPAddress.Parse("192.168.2.3");
-        private IPEndPoint _ipe;                     // = new IPEndPoint(_PLCIP, 500);
-        
-
-        public bool ConnectPLC()
+        private bool _reConnectPLC()
         {
-            bool bConnectPLC = false;
+            
+            var t1 = Task.Factory.StartNew(()=>{
+                while(!_SocketPLC.Connected)
+                {
+                    _ConnectPLC();
+                }
+            });
+            
+            return _SocketPLC.Connected;
+        }
 
+        private bool _ConnectPLC()
+        {
+            
             try
             {
+                _SocketPLC.Connect(IPAddress.Loopback, _PORT);
+                // _SocketPLC.Connect(_ipe);
                 
-                Socket tempSocket = new Socket(_ipe.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                tempSocket.Connect(_ipe);
-                SocketPLC = tempSocket;
-                //SocketPLC.Connect(ipe);
-                bConnectPLC = true;
+            }
+            catch (SocketException)
+            {
+                
             }
             catch (Exception err)
             {
-                bConnectPLC = false;
+                
             }
-            return bConnectPLC;
+            
+            return _SocketPLC.Connected;
         }
 
         private byte[] SendPLC(PLCInfo.FunctionID cmd, string strMsg)
@@ -66,10 +125,10 @@ namespace fatekTCP
 
             try
             {
-                SocketPLC.Send(baSendCom, baSendCom.Length, 0);
+                _SocketPLC.Send(baSendCom, baSendCom.Length, 0);
                 Console.WriteLine($"command sent: {ByteArrayToHexString(baSendCom)}");         // command sent: 0230313430433703
 
-                int nRcvBytesLength = SocketPLC.Receive(baRcvBuffer, SocketFlags.None);
+                int nRcvBytesLength = _SocketPLC.Receive(baRcvBuffer, SocketFlags.None);
                 Console.WriteLine($"nRcvBytesLength: {nRcvBytesLength}");
                 byte[] baPLCRes = new byte[nRcvBytesLength];
                 Array.Copy(baRcvBuffer, baPLCRes, nRcvBytesLength);
@@ -78,7 +137,6 @@ namespace fatekTCP
 
                 // Remove STX, Original cmmand, Checksum and ETX
                 baUsefulRes = RemoveControlCharChksum(baPLCRes, baExpectedRes);             // baUsefulRes: 30303134303030
-
 
             }
             catch (Exception err)
@@ -249,7 +307,7 @@ namespace fatekTCP
             return nErrorCode;
         }
 
-        public static byte[] RemoveControlCharChksum(byte[] baSource, byte[] baExpectedRes)
+        private static byte[] RemoveControlCharChksum(byte[] baSource, byte[] baExpectedRes)
         {
             
             int nSourceLength = baSource.GetLength(0);
@@ -266,7 +324,7 @@ namespace fatekTCP
             return baUsefulRes;
         }
 
-        public static string RemoveControlCharAndLetter(string strSource, int nOption)
+        private static string RemoveControlCharAndLetter(string strSource, int nOption)
         {
             // Method 1
             //string output = new string(strSource.Where(c => char.IsLetter(c) || char.IsDigit(c)).ToArray());
@@ -300,7 +358,7 @@ namespace fatekTCP
             return newString.ToString();
         }
 
-        public static byte[] hexStringToHexByteArray(string strSource)
+        private static byte[] hexStringToHexByteArray(string strSource)
         {
             // Example: "03E8" ==> byte[0x03, 0xE8], "00989680" ==> byte[0x00, 0x98, 0x96, 0x80]
 
@@ -316,7 +374,7 @@ namespace fatekTCP
 
         }
 
-        public static byte[] decStringToDecByteArray(string strSource)
+        private static byte[] decStringToDecByteArray(string strSource)
         {
             // Example: "012345"  ==> [0, 1, 2, 3, 4, 5]
             int nLength = strSource.Length;
@@ -329,7 +387,7 @@ namespace fatekTCP
             return baUsefulRes;
         }
 
-        public static byte[] ASCIIArrayToIntArray(byte[] ba)
+        private static byte[] ASCIIArrayToIntArray(byte[] ba)
         {
             // ba: 023031343030303134303030314303
             // strDecValue: 014000140001C
@@ -352,7 +410,7 @@ namespace fatekTCP
             return baDevValue;
         }
 
-        public static string DecIntToHexString(int nDecValue)
+        private static string DecIntToHexString(int nDecValue)
         {
             //Example1: nDecValue = 1000 ==> hexString = "3E8", nDecValue = 10,000,000 ==> hexString = "989680"
             
@@ -365,7 +423,7 @@ namespace fatekTCP
             return hexString;
         }
 
-        public static int HexStringToDecInt(string strHexValue)
+        private static int HexStringToDecInt(string strHexValue)
         {
             // Example: strHexValue = "0x3E8" or "3E8" ==> nDecValue = 1000
 
@@ -384,7 +442,7 @@ namespace fatekTCP
             return nDecValue;
         }
 
-        public static string ByteArrayToHexString<T>(T[] ba, int nFmtLength = 2)
+        private static string ByteArrayToHexString<T>(T[] ba, int nFmtLength = 2)
         {
             // Both Decimal format or Hexadecimal one work.
             // Example: ba = [0x02, 0x30, 0x31, 0x34, 0x30] ==> hexString = "0230313430"
@@ -407,7 +465,7 @@ namespace fatekTCP
             return hexString.ToString();
         }
 
-        public static byte[] HexStringToByteArray(String hexString)
+        private static byte[] HexStringToByteArray(String hexString)
         {
             // Example: hexString = "0230313430" ==> hexBytes = [0x02, 0x30, 0x31, 0x34, 0x30]
             int NumberChars = hexString.Length;
